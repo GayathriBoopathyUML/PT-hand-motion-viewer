@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SKELETON — Dual-Hand Motion Viewer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #0a0c10;
+    --panel: #12151c;
+    --panel-2: #171b23;
+    --line: #232833;
+    --text: #dde2ea;
+    --muted: #6f7887;
+    --cyan: #4fd8e0;
+    --magenta: #e0609a;
+    --thumb: #ff9f40;
+    --index: #ff5a5a;
+    --middle: #4dff9a;
+    --ring: #4f9bff;
+    --pinky: #c084ff;
+  }
+  *{ box-sizing:border-box; }
+  html,body{
+    margin:0; padding:0; height:100%;
+    background:
+      radial-gradient(circle at 15% 0%, rgba(79,216,224,0.05), transparent 40%),
+      radial-gradient(circle at 85% 100%, rgba(224,96,154,0.05), transparent 40%),
+      var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', sans-serif;
+    overflow-x:hidden;
+  }
+  .mono{ font-family:'JetBrains Mono', monospace; }
+
+  .grid-overlay{
+    position:fixed; inset:0; pointer-events:none; z-index:0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+    background-size: 42px 42px;
+  }
+
+  header{
+    position:relative; z-index:1;
+    padding: 28px 32px 18px;
+    display:flex; align-items:baseline; justify-content:space-between;
+    border-bottom: 1px solid var(--line);
+    flex-wrap: wrap; gap:10px;
+  }
+  header h1{
+    font-size: 20px; font-weight:700; letter-spacing: 0.14em; margin:0;
+    text-transform: uppercase;
+  }
+  header h1 span{ color: var(--cyan); }
+  header .tag{
+    font-size:11px; color: var(--muted); letter-spacing: 0.08em;
+  }
+
+  main{ position:relative; z-index:1; padding: 24px 32px 48px; max-width: 1400px; margin: 0 auto; }
+
+  #dropzone{
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+    background: var(--panel);
+    padding: 22px 24px;
+    display:flex; align-items:center; justify-content:space-between;
+    gap: 18px; flex-wrap: wrap;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  #dropzone.drag{ border-color: var(--cyan); background: #10181a; }
+  #dropzone .left{ display:flex; align-items:center; gap:16px; }
+  #dropzone .icon{
+    width:38px; height:38px; border-radius:8px;
+    background: var(--panel-2); display:flex; align-items:center; justify-content:center;
+    color: var(--cyan); font-size:16px; flex-shrink:0;
+  }
+  #dropzone .title{ font-size:14px; font-weight:600; }
+  #dropzone .sub{ font-size:12px; color: var(--muted); margin-top:2px; }
+  #fileInput{ display:none; }
+  #browseBtn{
+    background: var(--cyan); color:#06181a; border:none; border-radius:7px;
+    padding: 10px 18px; font-weight:600; font-size:13px; cursor:pointer;
+    font-family:'Space Grotesk', sans-serif; letter-spacing:0.02em;
+    transition: transform 0.1s ease, opacity 0.15s ease;
+  }
+  #browseBtn:hover{ opacity:0.9; }
+  #browseBtn:active{ transform: scale(0.97); }
+  #statusLine{ font-size:11.5px; color: var(--muted); margin-top:10px; min-height:16px; }
+  #statusLine.err{ color:#ff7a7a; }
+  #statusLine.ok{ color: var(--middle); }
+
+  #viewerWrap{ display:none; margin-top: 26px; }
+  .stage{
+    display:grid; grid-template-columns: 1fr 1fr; gap: 18px;
+  }
+  @media (max-width: 900px){ .stage{ grid-template-columns: 1fr; } }
+
+  .panel{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .panel-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 12px 16px; border-bottom: 1px solid var(--line);
+  }
+  .panel-head .name{ font-size:12px; font-weight:700; letter-spacing:0.1em; }
+  .panel-head .name.right{ color: var(--index); }
+  .panel-head .name.left{ color: var(--ring); }
+  .panel-head .count{ font-size:11px; color: var(--muted); }
+  .canvas-holder{ width:100%; aspect-ratio: 4 / 3.1; position:relative; }
+  .canvas-holder canvas{ display:block; width:100%; height:100%; }
+  .canvas-holder.empty::after{
+    content: "no data for this hand";
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color: var(--muted); font-size:12px; font-family:'JetBrains Mono', monospace;
+  }
+
+  .hand-controls{ padding: 14px 16px 16px; border-top: 1px solid var(--line); }
+
+  .transport{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .play-toggle{
+    width:34px; height:34px; border-radius:8px; border:1px solid var(--line);
+    background: var(--panel-2); color: var(--text); cursor:pointer;
+    display:flex; align-items:center; justify-content:center; font-size:13px;
+    flex-shrink:0;
+  }
+  .play-toggle:hover{ border-color: var(--cyan); }
+  .play-toggle:disabled{ opacity:0.35; cursor:not-allowed; }
+  .frame-slider{ flex:1; min-width:140px; accent-color: var(--cyan); cursor:pointer; }
+  .frame-readout{ font-size:11px; color: var(--muted); white-space:nowrap; min-width:96px; text-align:right; }
+  .speed-select{
+    background: var(--panel-2); color: var(--text); border:1px solid var(--line);
+    border-radius:6px; padding:5px 7px; font-size:11px; font-family:'JetBrains Mono', monospace;
+  }
+  .loop-toggle{ display:flex; align-items:center; gap:5px; font-size:10.5px; color: var(--muted); cursor:pointer; user-select:none; white-space:nowrap; }
+  .loop-toggle input{ accent-color: var(--cyan); }
+
+  .crop-row{
+    margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--line);
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  }
+  .crop-row label{ font-size: 10.5px; color: var(--muted); letter-spacing:0.06em; }
+  .crop-field{ display:flex; align-items:center; gap:6px; }
+  .crop-field input[type=number]{
+    width:70px; background: var(--panel-2); color: var(--text); border:1px solid var(--line);
+    border-radius:6px; padding:6px 7px; font-size:12px; font-family:'JetBrains Mono', monospace;
+  }
+  .mini-btn{
+    background: var(--panel-2); color: var(--muted); border:1px solid var(--line);
+    border-radius:6px; padding:6px 9px; font-size:10.5px; cursor:pointer;
+    font-family:'JetBrains Mono', monospace;
+  }
+  .mini-btn:hover{ color: var(--text); border-color: var(--cyan); }
+  .download-btn{
+    margin-left:auto;
+    background: transparent; border:1px solid; border-radius:7px;
+    padding: 8px 14px; font-size:12px; font-weight:600; cursor:pointer;
+    font-family:'Space Grotesk', sans-serif;
+  }
+  .download-btn.right{ border-color: var(--index); color: var(--index); }
+  .download-btn.right:hover{ background: rgba(255,90,90,0.1); }
+  .download-btn.left{ border-color: var(--ring); color: var(--ring); }
+  .download-btn.left:hover{ background: rgba(79,155,255,0.1); }
+  .crop-summary{ width:100%; font-size:10.5px; color: var(--muted); margin-top:2px; }
+
+  #legend{
+    margin-top: 18px; display:flex; gap: 16px; flex-wrap:wrap;
+    font-size: 11px; color: var(--muted);
+  }
+  .legend-item{ display:flex; align-items:center; gap:6px; }
+  .swatch{ width:9px; height:9px; border-radius:2px; display:inline-block; }
+
+  /* angle charts */
+  #angleSection{ margin-top: 34px; }
+  #angleSection h2{
+    font-size:13px; letter-spacing:0.12em; text-transform:uppercase;
+    color: var(--text); margin: 0 0 4px;
+  }
+  #angleSection .sub{ font-size:11.5px; color: var(--muted); margin-bottom:16px; }
+  .finger-group{ margin-bottom: 20px; }
+  .finger-group-head{
+    display:flex; align-items:center; gap:8px; margin-bottom:8px;
+  }
+  .finger-group-head .dot{ width:8px; height:8px; border-radius:50%; }
+  .finger-group-head .name{ font-size:11.5px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color: var(--text); }
+  .angle-grid{
+    display:grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 16px;
+  }
+  .angle-card{
+    background: var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding: 14px 16px 10px;
+  }
+  .angle-card .angle-head{
+    display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;
+  }
+  .angle-card .angle-title{ font-size:12px; font-weight:600; }
+  .angle-card .angle-side-tag{ font-size:10px; color: var(--muted); }
+  .angle-chart-holder{ position:relative; height:210px; }
+  #noAngles{
+    display:none; font-size:12px; color: var(--muted); font-family:'JetBrains Mono', monospace;
+    padding: 18px; border:1px dashed var(--line); border-radius:10px; background: var(--panel);
+  }
+</style>
+</head>
+<body>
+<div class="grid-overlay"></div>
+
+<header>
+  <h1>SKELETON <span>//</span> dual-hand motion viewer</h1>
+  <div class="tag mono">local · client-side · no data leaves this page</div>
+</header>
+
+<main>
+  <div id="dropzone">
+    <div class="left">
+      <div class="icon">▲</div>
+      <div>
+        <div class="title">Load hand-tracking CSV</div>
+        <div class="sub mono">Position columns like RTTip_x, plus optional angle columns like L_Angle3_PIP_MCP_CMC_Index</div>
+      </div>
+    </div>
+    <div>
+      <button id="browseBtn">Choose file</button>
+      <input type="file" id="fileInput" accept=".csv,text/csv">
+    </div>
+  </div>
+  <div id="statusLine" class="mono"></div>
+
+  <div id="viewerWrap">
+    <div class="stage">
+      <div class="panel" id="panelR">
+        <div class="panel-head">
+          <div class="name right">RIGHT HAND</div>
+          <div class="count mono" id="countR"></div>
+        </div>
+        <div class="canvas-holder" id="holderR"></div>
+        <div class="hand-controls">
+          <div class="transport">
+            <button class="play-toggle" id="playR">▶</button>
+            <input type="range" class="frame-slider" id="sliderR" min="0" max="0" value="0" step="1">
+            <div class="frame-readout mono" id="readoutR">frame 0 / 0</div>
+            <select class="speed-select" id="speedR">
+              <option value="240">0.25×</option>
+              <option value="160">0.5×</option>
+              <option value="80" selected>1×</option>
+              <option value="40">2×</option>
+              <option value="20">4×</option>
+            </select>
+            <label class="loop-toggle"><input type="checkbox" id="loopR" checked> loop</label>
+          </div>
+          <div class="crop-row">
+            <div class="crop-field">
+              <label>START</label>
+              <input type="number" id="startR" min="0" value="0">
+              <button class="mini-btn" id="setStartR" title="use current frame">use current</button>
+            </div>
+            <div class="crop-field">
+              <label>END</label>
+              <input type="number" id="endR" min="0" value="0">
+              <button class="mini-btn" id="setEndR" title="use current frame">use current</button>
+            </div>
+            <button class="download-btn right" id="downloadR">Download right CSV</button>
+            <div class="crop-summary mono" id="summaryR"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="panelL">
+        <div class="panel-head">
+          <div class="name left">LEFT HAND</div>
+          <div class="count mono" id="countL"></div>
+        </div>
+        <div class="canvas-holder" id="holderL"></div>
+        <div class="hand-controls">
+          <div class="transport">
+            <button class="play-toggle" id="playL">▶</button>
+            <input type="range" class="frame-slider" id="sliderL" min="0" max="0" value="0" step="1">
+            <div class="frame-readout mono" id="readoutL">frame 0 / 0</div>
+            <select class="speed-select" id="speedL">
+              <option value="240">0.25×</option>
+              <option value="160">0.5×</option>
+              <option value="80" selected>1×</option>
+              <option value="40">2×</option>
+              <option value="20">4×</option>
+            </select>
+            <label class="loop-toggle"><input type="checkbox" id="loopL" checked> loop</label>
+          </div>
+          <div class="crop-row">
+            <div class="crop-field">
+              <label>START</label>
+              <input type="number" id="startL" min="0" value="0">
+              <button class="mini-btn" id="setStartL" title="use current frame">use current</button>
+            </div>
+            <div class="crop-field">
+              <label>END</label>
+              <input type="number" id="endL" min="0" value="0">
+              <button class="mini-btn" id="setEndL" title="use current frame">use current</button>
+            </div>
+            <button class="download-btn left" id="downloadL">Download left CSV</button>
+            <div class="crop-summary mono" id="summaryL"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="legend">
+      <span class="legend-item"><span class="swatch" style="background:var(--thumb)"></span>Thumb</span>
+      <span class="legend-item"><span class="swatch" style="background:var(--index)"></span>Index</span>
+      <span class="legend-item"><span class="swatch" style="background:var(--middle)"></span>Middle</span>
+      <span class="legend-item"><span class="swatch" style="background:var(--ring)"></span>Ring</span>
+      <span class="legend-item"><span class="swatch" style="background:var(--pinky)"></span>Pinky</span>
+      <span class="legend-item"><span class="swatch" style="background:var(--cyan)"></span>Wrist</span>
+      <span class="legend-item"><span class="swatch" style="background:var(--magenta)"></span>Hand center</span>
+      <span class="legend-item mono" style="color:#4a505c">drag to orbit · scroll to zoom · start/end mark the crop window each hand downloads</span>
+    </div>
+
+    <div id="angleSection">
+      <h2>Joint angles</h2>
+      <div class="sub mono">Auto-detected from columns named like <span style="color:var(--text)">L_Angle3_PIP_MCP_CMC_Index</span> / <span style="color:var(--text)">R_Angle2_DIP_PIP_MCP_Index</span> — right in <span style="color:var(--index)">red</span>, left in <span style="color:var(--ring)">blue</span>. The dashed markers track each hand's current playback frame.</div>
+      <div id="noAngles" class="mono">No angle columns found in this file (looking for names like L_Angle&lt;n&gt;_..._&lt;Finger&gt; / R_Angle&lt;n&gt;_..._&lt;Finger&gt;).</div>
+      <div id="angleGroups"></div>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  const FINGERS = {
+    Thumb:  ["TTip","TIP","TMCP","TCMC"],
+    Index:  ["ITip","IDIP","IPIP","IMCP","ICMC"],
+    Middle: ["MTip","MDIP","MPIP","MMCP","MCMC"],
+    Ring:   ["RTip","RDIP","RPIP","RMCP","RCMC"],
+    Pinky:  ["PTip","PDIP","PPIP","PMCP","PCMC"]
+  };
+  const FINGER_COLORS = {
+    Thumb:  0xff9f40,
+    Index:  0xff5a5a,
+    Middle: 0x4dff9a,
+    Ring:   0x4f9bff,
+    Pinky:  0xc084ff
+  };
+  const WRIST_COLOR = 0x4fd8e0;
+  const HAND_COLOR  = 0xe0609a;
+  const RIGHT_HEX = '#ff5a5a';
+  const LEFT_HEX  = '#4f9bff';
+  const FINGER_ORDER = ['Thumb','Index','Middle','Ring','Pinky'];
+
+  const fileInput = document.getElementById('fileInput');
+  const browseBtn = document.getElementById('browseBtn');
+  const dropzone  = document.getElementById('dropzone');
+  const statusLine = document.getElementById('statusLine');
+  const viewerWrap = document.getElementById('viewerWrap');
+  const countR = document.getElementById('countR');
+  const countL = document.getElementById('countL');
+  const angleGroups = document.getElementById('angleGroups');
+  const noAngles = document.getElementById('noAngles');
+
+  if (window['chartjs-plugin-annotation'] && window.Chart){
+    Chart.register(window['chartjs-plugin-annotation']);
+  }
+
+  browseBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+  ['dragover','dragenter'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('drag'); }));
+  ['dragleave','drop'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('drag'); }));
+  dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  });
+
+  function setStatus(msg, cls){
+    statusLine.textContent = msg;
+    statusLine.className = 'mono' + (cls ? ' ' + cls : '');
+  }
+
+  let baseName = 'hand_positions';
+  let allRows = null, allColumns = null;
+
+  function handleFile(file){
+    setStatus('Parsing ' + file.name + ' …');
+    baseName = file.name.replace(/\.csv$/i, '') || 'hand_positions';
+    Papa.parse(file, {
+      header: true,
+      dynamicTyping: true,
+      skipEmptyLines: true,
+      complete: function(results){
+        try{
+          allRows = results.data;
+          allColumns = results.meta.fields;
+          buildFromRows(allRows, allColumns);
+          setStatus('Loaded ' + file.name + ' — ' + results.data.length + ' frames', 'ok');
+        }catch(err){
+          console.error(err);
+          setStatus('Could not read this CSV: ' + err.message, 'err');
+        }
+      },
+      error: function(err){
+        setStatus('Parse error: ' + err.message, 'err');
+      }
+    });
+  }
+
+  function extractFrames(rows, columns, handPrefix){
+    const colSet = new Set(columns);
+    const need = [handPrefix+'WCenter_x', handPrefix+'WCenter_y', handPrefix+'WCenter_z'];
+    const hasHand = need.every(c => colSet.has(c));
+    if (!hasHand) return null;
+
+    const frames = [];
+    for (const row of rows){
+      const frame = {};
+      for (const finger in FINGERS){
+        const pts = FINGERS[finger].map(j => [
+          Number(row[handPrefix+j+'_x']),
+          Number(row[handPrefix+j+'_y']),
+          Number(row[handPrefix+j+'_z'])
+        ]);
+        frame[finger] = pts;
+      }
+      frame.Wrist = [[
+        Number(row[handPrefix+'WCenter_x']),
+        Number(row[handPrefix+'WCenter_y']),
+        Number(row[handPrefix+'WCenter_z'])
+      ]];
+      frame.Hand = [[
+        Number(row[handPrefix+'HCenter_x']),
+        Number(row[handPrefix+'HCenter_y']),
+        Number(row[handPrefix+'HCenter_z'])
+      ]];
+      frames.push(frame);
+    }
+    return frames;
+  }
+
+  function computeBounds(frames){
+    let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity,minZ=Infinity,maxZ=-Infinity;
+    for (const frame of frames){
+      for (const key in frame){
+        for (const [x,y,z] of frame[key]){
+          if (Number.isFinite(x)){ if(x<minX)minX=x; if(x>maxX)maxX=x; }
+          if (Number.isFinite(y)){ if(y<minY)minY=y; if(y>maxY)maxY=y; }
+          if (Number.isFinite(z)){ if(z<minZ)minZ=z; if(z>maxZ)maxZ=z; }
+        }
+      }
+    }
+    const cx=(minX+maxX)/2, cy=(minY+maxY)/2, cz=(minZ+maxZ)/2;
+    const range = Math.max(maxX-minX, maxY-minY, maxZ-minZ, 1e-6) * 1.25;
+    return { cx, cy, cz, range };
+  }
+
+  function normalize(pt, bounds){
+    const scale = 3.0 / (bounds.range/2);
+    return new THREE.Vector3(
+      (pt[0]-bounds.cx)*scale,
+      -(pt[1]-bounds.cy)*scale,
+      -(pt[2]-bounds.cz)*scale
+    );
+  }
+
+  function makeViewport(container){
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+    camera.position.set(4.2, 3.2, 4.8);
+    const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+    container.appendChild(renderer.domElement);
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.target.set(0,0,0);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+    const grid = new THREE.GridHelper(8, 16, 0x2a3140, 0x1a1f28);
+    grid.position.y = -3.2;
+    scene.add(grid);
+
+    const fingerLines = {};
+    const fingerSpheres = {};
+    for (const finger in FINGERS){
+      const maxPts = FINGERS[finger].length;
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(maxPts*3), 3));
+      const mat = new THREE.LineBasicMaterial({ color: FINGER_COLORS[finger], linewidth:2 });
+      const line = new THREE.Line(geom, mat);
+      scene.add(line);
+      fingerLines[finger] = line;
+
+      const sMat = new THREE.MeshBasicMaterial({ color: FINGER_COLORS[finger] });
+      const spheres = [];
+      for (let i=0;i<maxPts;i++){
+        const s = new THREE.Mesh(new THREE.SphereGeometry(0.028, 10, 10), sMat);
+        scene.add(s);
+        spheres.push(s);
+      }
+      fingerSpheres[finger] = spheres;
+    }
+    const wristSphere = new THREE.Mesh(new THREE.SphereGeometry(0.045,10,10), new THREE.MeshBasicMaterial({color:WRIST_COLOR}));
+    const handSphere  = new THREE.Mesh(new THREE.SphereGeometry(0.045,10,10), new THREE.MeshBasicMaterial({color:HAND_COLOR}));
+    scene.add(wristSphere, handSphere);
+
+    function resize(){
+      const w = container.clientWidth, h = container.clientHeight;
+      if (w===0||h===0) return;
+      camera.aspect = w/h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w,h,false);
+    }
+    new ResizeObserver(resize).observe(container);
+    resize();
+
+    function updateFrame(frame, bounds){
+      for (const finger in FINGERS){
+        const pts = frame[finger].map(p => normalize(p, bounds));
+        const posAttr = fingerLines[finger].geometry.getAttribute('position');
+        pts.forEach((v,i) => posAttr.setXYZ(i, v.x, v.y, v.z));
+        posAttr.needsUpdate = true;
+        pts.forEach((v,i) => fingerSpheres[finger][i].position.copy(v));
+      }
+      const w = normalize(frame.Wrist[0], bounds);
+      const h = normalize(frame.Hand[0], bounds);
+      wristSphere.position.copy(w);
+      handSphere.position.copy(h);
+    }
+
+    function render(){
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    return { render, updateFrame, resize };
+  }
+
+  // ============================================================
+  // Joint angle charts
+  // ============================================================
+  let angleCharts = []; // { chart }
+  let timeSeconds = null; // elapsed seconds per row, or null if no usable timestamp column
+
+  function buildTimeSeconds(rows, columns){
+    if (columns.includes('timestamp')){
+      const parsed = rows.map(r => parseTimestamp(r['timestamp']));
+      if (parsed.every(v => v !== null)){
+        const t0 = parsed[0];
+        return parsed.map(v => v - t0);
+      }
+    }
+    return null;
+  }
+
+  function parseTimestamp(str){
+    if (typeof str !== 'string') return null;
+    const m = str.match(/^(\d+):(\d+):(\d+(?:\.\d+)?)$/);
+    if (!m) return null;
+    return Number(m[1])*3600 + Number(m[2])*60 + Number(m[3]);
+  }
+
+  function fingerNameOf(metric){
+    return FINGER_ORDER.find(f => metric.endsWith('_'+f) || metric.endsWith(f)) || null;
+  }
+
+  function friendlyLabel(metric){
+    return metric.replace(/_/g, ' ');
+  }
+
+  function detectAngleMetrics(columns){
+    const groups = {};
+    const re = /^([LR])_(Angle.+)$/;
+    for (const col of columns){
+      const m = col.match(re);
+      if (!m) continue;
+      const hand = m[1], metric = m[2];
+      if (!groups[metric]) groups[metric] = {};
+      groups[metric][hand] = col;
+    }
+    const metrics = Object.keys(groups);
+    metrics.sort((a,b) => {
+      const na = (a.match(/Angle(\d+)/)||[])[1] || '9';
+      const nb = (b.match(/Angle(\d+)/)||[])[1] || '9';
+      if (na !== nb) return Number(na) - Number(nb);
+      return a.localeCompare(b);
+    });
+    return metrics.map(metric => ({ metric, cols: groups[metric] }));
+  }
+
+  function destroyAngleCharts(){
+    angleCharts.forEach(c => c.chart.destroy());
+    angleCharts = [];
+    angleGroups.innerHTML = '';
+  }
+
+  function frameTickLabel(frameValue){
+    const i = Math.min(Math.max(Math.round(frameValue), 0), allRows.length - 1);
+    const line1 = 'f' + i;
+    if (timeSeconds && timeSeconds[i] != null){
+      return [line1, timeSeconds[i].toFixed(2)+'s'];
+    }
+    return [line1];
+  }
+
+  function makeAngleChart(canvas, cols){
+    const datasets = [];
+    if (cols.R){
+      datasets.push({
+        label: 'Right',
+        data: allRows.map((r,i) => ({ x: i, y: Number(r[cols.R]) })).filter(p => Number.isFinite(p.y)),
+        borderColor: RIGHT_HEX, backgroundColor: RIGHT_HEX,
+        borderWidth: 1.6, pointRadius: 0, tension: 0.12
+      });
+    }
+    if (cols.L){
+      datasets.push({
+        label: 'Left',
+        data: allRows.map((r,i) => ({ x: i, y: Number(r[cols.L]) })).filter(p => Number.isFinite(p.y)),
+        borderColor: LEFT_HEX, backgroundColor: LEFT_HEX,
+        borderWidth: 1.6, pointRadius: 0, tension: 0.12
+      });
+    }
+
+    return new Chart(canvas.getContext('2d'), {
+      type: 'line',
+      data: { datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: false,
+        interaction: { mode: 'nearest', axis: 'x', intersect: false },
+        scales: {
+          x: {
+            type: 'linear',
+            title: { display:true, text: timeSeconds ? 'Frame / Time (s)' : 'Frame', color:'#6f7887', font:{size:10} },
+            ticks:{ color:'#6f7887', font:{size:9.5}, callback: frameTickLabel, maxRotation:0, autoSkip:true },
+            grid:{ color:'#1a1f28' }
+          },
+          y: { title: { display:true, text:'Angle (deg)', color:'#6f7887', font:{size:10} },
+               ticks:{ color:'#6f7887', font:{size:10} }, grid:{ color:'#1a1f28' } }
+        },
+        plugins: {
+          legend: { labels: { color:'#9aa2b1', font:{size:10.5}, boxWidth:12 } },
+          tooltip: {
+            titleFont:{size:11}, bodyFont:{size:11},
+            callbacks: {
+              title: items => {
+                const i = Math.round(items[0].parsed.x);
+                return 'frame ' + i + (timeSeconds && timeSeconds[i]!=null ? '  ·  ' + timeSeconds[i].toFixed(2) + 's' : '');
+              }
+            }
+          },
+          annotation: { annotations: {
+            curR: { type:'line', scaleID:'x', value: null, borderColor: RIGHT_HEX, borderWidth:1.5, borderDash:[4,3], display:false },
+            curL: { type:'line', scaleID:'x', value: null, borderColor: LEFT_HEX, borderWidth:1.5, borderDash:[4,3], display:false }
+          }}
+        }
+      }
+    });
+  }
+
+  function buildAngleCharts(rows, columns){
+    destroyAngleCharts();
+    const metrics = detectAngleMetrics(columns);
+    if (!metrics.length){
+      noAngles.style.display = 'block';
+      return;
+    }
+    noAngles.style.display = 'none';
+    timeSeconds = buildTimeSeconds(rows, columns);
+
+    // group metrics by finger, in FINGER_ORDER, so each finger renders as its own row
+    const byFinger = {};
+    const unmatched = [];
+    metrics.forEach(m => {
+      const f = fingerNameOf(m.metric);
+      if (f){ (byFinger[f] = byFinger[f] || []).push(m); }
+      else unmatched.push(m);
+    });
+
+    const fingerDot = {
+      Thumb: FINGER_COLORS.Thumb, Index: FINGER_COLORS.Index, Middle: FINGER_COLORS.Middle,
+      Ring: FINGER_COLORS.Ring, Pinky: FINGER_COLORS.Pinky
+    };
+    const hexOf = n => '#' + n.toString(16).padStart(6,'0');
+
+    const orderedGroups = FINGER_ORDER.filter(f => byFinger[f]).map(f => ({ name:f, items:byFinger[f] }));
+    if (unmatched.length) orderedGroups.push({ name:'Other', items:unmatched });
+
+    orderedGroups.forEach(group => {
+      const section = document.createElement('div');
+      section.className = 'finger-group';
+      const dotColor = fingerDot[group.name] != null ? hexOf(fingerDot[group.name]) : '#6f7887';
+      section.innerHTML =
+        '<div class="finger-group-head">' +
+          '<span class="dot" style="background:' + dotColor + '"></span>' +
+          '<span class="name">' + group.name + '</span>' +
+        '</div>' +
+        '<div class="angle-grid"></div>';
+      angleGroups.appendChild(section);
+      const rowGrid = section.querySelector('.angle-grid');
+
+      group.items.forEach(({ metric, cols }) => {
+        const card = document.createElement('div');
+        card.className = 'angle-card';
+        const sideTag = (cols.R ? 'R ' : '') + (cols.L ? 'L' : '');
+        card.innerHTML =
+          '<div class="angle-head">' +
+            '<div class="angle-title">' + friendlyLabel(metric) + '</div>' +
+            '<div class="angle-side-tag mono">' + sideTag.trim() + '</div>' +
+          '</div>' +
+          '<div class="angle-chart-holder"><canvas></canvas></div>';
+        rowGrid.appendChild(card);
+        const chart = makeAngleChart(card.querySelector('canvas'), cols);
+        angleCharts.push({ chart });
+      });
+    });
+  }
+
+  function updateAngleCursor(hand, frameIndex){
+    if (!angleCharts.length) return;
+    const key = hand === 'R' ? 'curR' : 'curL';
+    angleCharts.forEach(({ chart }) => {
+      const ann = chart.options.plugins.annotation.annotations[key];
+      ann.value = frameIndex;
+      ann.display = Number.isFinite(frameIndex);
+      chart.update('none');
+    });
+  }
+
+  // ---- generic per-hand player/cropper ----
+  function makeHandController(prefix, elId){
+    const el = {
+      panel: document.getElementById('panel'+elId),
+      holder: document.getElementById('holder'+elId),
+      count: document.getElementById('count'+elId),
+      play: document.getElementById('play'+elId),
+      slider: document.getElementById('slider'+elId),
+      readout: document.getElementById('readout'+elId),
+      speed: document.getElementById('speed'+elId),
+      loop: document.getElementById('loop'+elId),
+      start: document.getElementById('start'+elId),
+      end: document.getElementById('end'+elId),
+      setStart: document.getElementById('setStart'+elId),
+      setEnd: document.getElementById('setEnd'+elId),
+      download: document.getElementById('download'+elId),
+      summary: document.getElementById('summary'+elId)
+    };
+
+    let frames = null, bounds = null, rowIndices = null, viewport = null;
+    let current = 0, playing = false, lastStep = 0;
+    let cropStart = 0, cropEnd = 0;
+
+    function load(framesArg, boundsArg, rowIndicesArg){
+      frames = framesArg; bounds = boundsArg; rowIndices = rowIndicesArg;
+      current = 0; playing = false; el.play.textContent = '▶';
+      const has = !!(frames && frames.length);
+      el.play.disabled = !has;
+      el.holder.classList.toggle('empty', !has);
+      el.count.textContent = has ? (frames.length + ' frames') : 'no data';
+
+      if (has){
+        if (!viewport) viewport = makeViewport(el.holder);
+        el.slider.max = frames.length - 1;
+        el.slider.value = 0;
+        cropStart = 0; cropEnd = frames.length - 1;
+        el.start.max = frames.length - 1;
+        el.end.max = frames.length - 1;
+        el.start.value = cropStart;
+        el.end.value = cropEnd;
+        updateVisual();
+        updateSummary();
+      } else {
+        el.summary.textContent = '';
+        updateAngleCursor(prefix[0], NaN);
+      }
+    }
+
+    function updateVisual(){
+      if (!frames || !frames.length) return;
+      viewport.updateFrame(frames[current], bounds);
+      el.slider.value = current;
+      el.readout.textContent = 'frame ' + (current+1) + ' / ' + frames.length;
+      updateAngleCursor(prefix[0], rowIndices ? rowIndices[current] : current);
+    }
+
+    function updateSummary(){
+      const n = Math.max(cropEnd - cropStart + 1, 0);
+      el.summary.textContent = n + ' frames selected (rows ' + cropStart + '–' + cropEnd + ') → will download as ' +
+        baseName + '_' + prefix.toLowerCase() + '.csv';
+    }
+
+    el.play.addEventListener('click', () => {
+      if (!frames || !frames.length) return;
+      playing = !playing;
+      el.play.textContent = playing ? '❚❚' : '▶';
+    });
+    el.slider.addEventListener('input', () => {
+      playing = false; el.play.textContent = '▶';
+      current = Number(el.slider.value);
+      updateVisual();
+    });
+    el.start.addEventListener('change', () => {
+      let v = Math.max(0, Math.min(Number(el.start.value)||0, (frames?frames.length-1:0)));
+      if (v > cropEnd) v = cropEnd;
+      cropStart = v; el.start.value = v;
+      updateSummary();
+    });
+    el.end.addEventListener('change', () => {
+      let v = Math.max(0, Math.min(Number(el.end.value)||0, (frames?frames.length-1:0)));
+      if (v < cropStart) v = cropStart;
+      cropEnd = v; el.end.value = v;
+      updateSummary();
+    });
+    el.setStart.addEventListener('click', () => {
+      if (!frames) return;
+      cropStart = Math.min(current, cropEnd);
+      el.start.value = cropStart;
+      updateSummary();
+    });
+    el.setEnd.addEventListener('click', () => {
+      if (!frames) return;
+      cropEnd = Math.max(current, cropStart);
+      el.end.value = cropEnd;
+      updateSummary();
+    });
+    el.download.addEventListener('click', () => {
+      if (!frames || !rowIndices || !allRows || !allColumns){
+        setStatus('Nothing loaded to download yet', 'err');
+        return;
+      }
+      const selectedRows = [];
+      for (let i = cropStart; i <= cropEnd; i++){
+        selectedRows.push(allRows[rowIndices[i]]);
+      }
+      const csv = Papa.unparse(selectedRows, { columns: allColumns });
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = baseName + '_' + prefix.toLowerCase() + '.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setStatus('Downloaded ' + a.download + ' (' + selectedRows.length + ' rows)', 'ok');
+    });
+
+    function tick(ts){
+      if (playing && frames && frames.length){
+        const interval = Number(el.speed.value);
+        if (ts - lastStep >= interval){
+          lastStep = ts;
+          current++;
+          if (current >= frames.length){
+            if (el.loop.checked){ current = 0; }
+            else { current = frames.length - 1; playing = false; el.play.textContent = '▶'; }
+          }
+          updateVisual();
+        }
+      }
+      if (viewport) viewport.render();
+    }
+
+    return { load, tick };
+  }
+
+  const ctrlR = makeHandController('Right', 'R');
+  const ctrlL = makeHandController('Left', 'L');
+
+  function buildFromRows(rows, columns){
+    const fr = extractFrames(rows, columns, 'R');
+    const fl = extractFrames(rows, columns, 'L');
+    if (!fr && !fl){
+      throw new Error('no RWCenter_x/LWCenter_x style columns found');
+    }
+    viewerWrap.style.display = 'block';
+
+    const idxR = fr ? fr.map((_, i) => i) : null;
+    const idxL = fl ? fl.map((_, i) => i) : null;
+
+    ctrlR.load(fr, fr ? computeBounds(fr) : null, idxR);
+    ctrlL.load(fl, fl ? computeBounds(fl) : null, idxL);
+
+    buildAngleCharts(rows, columns);
+
+    if (!animRunning) { animRunning = true; requestAnimationFrame(loop); }
+  }
+
+  let animRunning = false;
+  function loop(ts){
+    ctrlR.tick(ts);
+    ctrlL.tick(ts);
+    requestAnimationFrame(loop);
+  }
+})();
+</script>
+</body>
+</html>
